@@ -1,11 +1,13 @@
 import os
 import io
+import subprocess
 import pdfplumber
 import PyPDF2
 import pytesseract
 from tkinter import *
 from tkinter import filedialog, simpledialog, messagebox
 from PIL import Image
+from wand.exceptions import WandException
 
 from .config import ROOT_PATH, BACKGROUND_COLOR, HIGHLIGHT_COLOR
 from .hoverbutton import HoverButton
@@ -360,6 +362,13 @@ class PostOCR(Frame):
             self.rotate = 0
             self._update_page()
             self.master.title("PostOCR : {}".format(path))
+        except WandException:
+            res = messagebox.askokcancel("Error", "ImageMagick Policy Error! Should PostOCR try fixing the error?")
+            if res == 1:
+                self._fix_policy_error()
+                messagebox.showinfo("Policy Fixed!", "ImageMagick Policy Error fixed! Restart PostOCR.")
+            else:
+                messagebox.showerror('Error', 'Could not open file!')
         except (IndexError, IOError, TypeError):
             messagebox.showerror('Error', 'Could not open file!')
 
@@ -390,3 +399,26 @@ class PostOCR(Frame):
         help_frame.rowconfigure(0, weight=1)
         help_frame.columnconfigure(0, weight=1)
         HelpBox(help_frame, width=w, height=h, bg=BACKGROUND_COLOR, relief=SUNKEN).grid(row=0, column=0)
+
+    @staticmethod
+    def _fix_policy_error():
+        policy_path = "/etc/ImageMagick-6/policy.xml"
+        if not os.path.isfile(policy_path):
+            policy_path = "/etc/ImageMagick/policy.xml"
+        with open(policy_path, 'r') as policy_file:
+            data = policy_file.readlines()
+            new_data = []
+
+            for line in data:
+                if 'MVG' in line:
+                    line = '<!-- ' + line + ' -->'
+                elif 'PDF' in line:
+                    line = '  <policy domain="coder" rights="read|write" pattern="PDF" />\n'
+                elif '</policymap>' in line:
+                    new_data.append('  <policy domain="coder" rights="read|write" pattern="LABEL" />\n')
+                new_data.append(line)
+
+            with open('policy.xml', 'w') as new_file:
+                new_file.writelines(new_data)
+
+            subprocess.call(["sudo", "mv", "new_policy.xml", policy_path])
