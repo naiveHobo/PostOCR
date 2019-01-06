@@ -66,6 +66,10 @@ class PostOCR(Frame):
         options.grid(row=0, column=0)
 
         options.add_item('Open File...', self._open_file, seperator=True)
+        options.add_item('Search...', self._search_text, seperator=True)
+        options.add_item('Run OCR', self._run_ocr)
+        options.add_item('Find OCR Errors', self.master.quit)
+        options.add_item('Fix OCR Errors', self.master.quit, seperator=True)
         options.add_item('Help...', self._help, seperator=True)
         options.add_item('Exit', self.master.quit)
 

@@ -43,7 +43,17 @@ This comes in handy when an image file is opened using PostOCR.
 
 Another scenario where you may have to use the OCR is when a PDF document contains embedded images and you need to extract text from the embedded images.
 
-On clicking the button, Tessearact is ran on the current PDF and the extracted text is stored as another PDF file which you have the option of saving in your system.
+On clicking the button, Tesseract is ran on the current PDF and the extracted text is stored as another PDF file which you have the option of saving in your system.
+
+
+Find OCR Errors:
+
+The 'Find OCR Errors' option runs the 'HoboNet' model to detect any OCR noise that might have been introduced when the OCR was run on the PDF file.
+
+
+Fix OCR Errors:
+
+The 'Fix OCR Errors' option runs the 'HoboNet' model to correct any OCR noise that might have been introduced when the OCR was run on the PDF file.
 
 
 PDF Tool Bar:

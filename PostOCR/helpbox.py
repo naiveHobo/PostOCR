@@ -38,7 +38,7 @@ class HelpBox(Frame):
         text_box.insert('1.0', texts[0])
         texts = texts[1:]
 
-        paths = ['open_file.png', 'clear.png', 'search.png', 'extract.png', 'ocr.png']
+        paths = ['open_file.png', 'clear.png', 'search.png', 'extract.png', 'ocr.png', 'find.png', 'fix.png']
         self.images = [ImageTk.PhotoImage(Image.open(os.path.join('./widgets', path))) for path in paths]
 
         for text, image in zip(texts, self.images):
