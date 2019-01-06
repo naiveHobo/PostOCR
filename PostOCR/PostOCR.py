@@ -87,6 +87,12 @@ class PostOCR(Frame):
         HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/ocr.png'), command=self._run_ocr,
                     width=50, height=50, bg=BACKGROUND_COLOR, bd=0, tool_tip="Run OCR",
                     highlightthickness=0, activebackground=HIGHLIGHT_COLOR).pack(pady=2)
+        HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/find.png'),
+                    width=50, height=50, bg=BACKGROUND_COLOR, bd=0, tool_tip="Find OCR Errors",
+                    highlightthickness=0, activebackground=HIGHLIGHT_COLOR).pack(pady=2)
+        HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/fix.png'),
+                    width=50, height=50, bg=BACKGROUND_COLOR, bd=0, tool_tip="Fix OCR Errors",
+                    highlightthickness=0, activebackground=HIGHLIGHT_COLOR).pack(pady=2)
 
         HoverButton(tool_frame, image_path=os.path.join(ROOT_PATH, 'widgets/help.png'), command=self._help,
                     width=50, height=50, bg=BACKGROUND_COLOR, bd=0, tool_tip="Help",

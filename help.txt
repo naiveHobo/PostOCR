@@ -46,7 +46,7 @@ Another scenario where you may have to use the OCR is when a PDF document contai
 On clicking the button, Tessearact is ran on the current PDF and the extracted text is stored as another PDF file which you have the option of saving in your system.
 
 
-Viewer:
+PDF Tool Bar:
 
 The PDF Tool Bar gives you functions to manipulate your PDF documents.
 - Use the 'Next Page' and 'Previous Page' buttons to cycle through the different pages in your PDF.
