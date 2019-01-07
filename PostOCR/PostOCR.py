@@ -1,19 +1,25 @@
 import os
-import io
+import json
+import h5py
 import subprocess
 import pdfplumber
-import PyPDF2
 import pytesseract
-from tkinter import *
-from tkinter import filedialog, simpledialog, messagebox
 from PIL import Image
 from wand.exceptions import WandException
+
+from tkinter import *
+from tkinter import filedialog, simpledialog, messagebox
+
+import keras
+import numpy as np
 
 from .config import ROOT_PATH, BACKGROUND_COLOR, HIGHLIGHT_COLOR
 from .hoverbutton import HoverButton
 from .helpbox import HelpBox
 from .menubox import MenuBox
 from .display_canvas import DisplayCanvas
+from .ocr_reader import OCRReader
+from .model import get_model
 
 
 class PostOCR(Frame):
@@ -28,7 +34,18 @@ class PostOCR(Frame):
         self.scale = 1.0
         self.rotate = 0
         self.save_path = None
+        self.hobonet = None
+        self.vocab = None
+        self.ocr_text = None
+        self.ocr_text_path = None
+        self._load_hobonet()
         self._init_ui()
+
+    def _load_hobonet(self, path=os.path.join(ROOT_PATH, 'HoboNet/')):
+        hf = h5py.File(os.path.join(path, 'data/data.h5'), 'r')
+        self.vocab = json.loads(hf['vocab'].value)
+        self.hobonet = get_model()
+        self.hobonet.load_weights(os.path.join(path, 'model/model.h5'))
 
     def _init_ui(self):
         ws = self.master.winfo_screenwidth()
@@ -68,8 +85,9 @@ class PostOCR(Frame):
         options.add_item('Open File...', self._open_file, seperator=True)
         options.add_item('Search...', self._search_text, seperator=True)
         options.add_item('Run OCR', self._run_ocr)
-        options.add_item('Find OCR Errors', self.master.quit)
-        options.add_item('Fix OCR Errors', self.master.quit, seperator=True)
+        options.add_item('Load HoboNet...', self._load_hobonet_popup)
+        options.add_item('Find OCR Errors', self._detect_errors)
+        options.add_item('Fix OCR Errors', self._correct_errors, seperator=True)
         options.add_item('Help...', self._help, seperator=True)
         options.add_item('Exit', self.master.quit)
 
@@ -91,10 +109,10 @@ class PostOCR(Frame):
         HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/ocr.png'), command=self._run_ocr,
                     width=50, height=50, bg=BACKGROUND_COLOR, bd=0, tool_tip="Run OCR",
                     highlightthickness=0, activebackground=HIGHLIGHT_COLOR).pack(pady=2)
-        HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/find.png'),
+        HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/find.png'), command=self._detect_errors,
                     width=50, height=50, bg=BACKGROUND_COLOR, bd=0, tool_tip="Find OCR Errors",
                     highlightthickness=0, activebackground=HIGHLIGHT_COLOR).pack(pady=2)
-        HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/fix.png'),
+        HoverButton(tools, image_path=os.path.join(ROOT_PATH, 'widgets/fix.png'), command=self._correct_errors,
                     width=50, height=50, bg=BACKGROUND_COLOR, bd=0, tool_tip="Fix OCR Errors",
                     highlightthickness=0, activebackground=HIGHLIGHT_COLOR).pack(pady=2)
 
@@ -315,31 +333,50 @@ class PostOCR(Frame):
     def _run_ocr(self):
         if self.pdf is None:
             return
-        pdf_pages = list()
-        for page in self.pdf.pages:
-            image = page.to_image(resolution=100)
-            pdf = pytesseract.image_to_pdf_or_hocr(image.original, extension='pdf')
-            pdf_pages.append(pdf)
 
-        pdf_writer = PyPDF2.PdfFileWriter()
-        for page in pdf_pages:
-            pdf = PyPDF2.PdfFileReader(io.BytesIO(page))
-            pdf_writer.addPage(pdf.getPage(0))
+        text = ''
+        for page in self.pdf.pages:
+            image = page.to_image(resolution=int(self.scale * 80))
+            text += ' ' + pytesseract.image_to_string(image.original)
 
         dirname = os.path.dirname(self.path)
-        filename = os.path.basename(self.path)
+        filename = os.path.basename(self.path).replace('pdf', 'txt')
 
-        path = filedialog.asksaveasfilename(title='Save OCR As', defaultextension='.pdf',
+        path = filedialog.asksaveasfilename(title='Save OCR text as', defaultextension='.txt',
                                             initialdir=dirname, initialfile=filename,
-                                            filetypes=[('PDF files', '*.pdf'), ('all files', '.*')])
+                                            filetypes=[('Text files', '*.txt'),
+                                                       ('PDF files', '*.pdf'),
+                                                       ('all files', '.*')])
         if path == '' or path is None:
             return
 
-        with open(path, 'wb') as out:
-            pdf_writer.write(out)
+        self.ocr_text = text.strip()
+        self.ocr_text_path = path
 
-        self.path = path
-        self._load_file()
+        with open(self.ocr_text_path, 'w') as out:
+            out.write(self.ocr_text)
+
+        self._display_ocr_text()
+
+    def _display_ocr_text(self):
+        if self.pdf is None:
+            return
+        if not self.ocr_text:
+            return
+        ws = self.master.winfo_screenwidth()
+        hs = self.master.winfo_screenheight()
+        w, h = 600, 600
+        x = (ws / 2) - (w / 2)
+        y = (hs / 2) - (h / 2)
+        text_frame = Toplevel(self)
+        text_frame.title("OCR Text")
+        text_frame.configure(width=w, height=h, bg=BACKGROUND_COLOR, relief=SUNKEN)
+        text_frame.geometry('%dx%d+%d+%d' % (w, h, x, y))
+        text_frame.minsize(height=h, width=w)
+        text_frame.maxsize(height=h, width=w)
+        text_frame.rowconfigure(0, weight=1)
+        text_frame.columnconfigure(0, weight=1)
+        OCRReader(text_frame, text=self.ocr_text, width=w, height=h, bg=BACKGROUND_COLOR, relief=SUNKEN).grid(row=0, column=0)
 
     @staticmethod
     def _image_to_pdf(path):
@@ -357,6 +394,64 @@ class PostOCR(Frame):
         with open(path, 'wb') as out:
             out.write(pdf)
         return path
+
+    def _load_hobonet_popup(self):
+        path = filedialog.askopenfilename(filetypes=[('HDF5 files', '*.hdf5', '*.h5')],
+                                          initialdir=os.getcwd(),
+                                          title="Select model file")
+
+        if not path or path == '' or os.path.basename(path).split('.')[-1].lower() not in ['h5', 'hdf5']:
+            return
+
+        self.hobonet = keras.models.load_model(path)
+
+    def _detect_errors(self):
+        if self.pdf is None:
+            return
+
+        if not self.hobonet:
+            self._load_hobonet_popup()
+
+    def _correct_errors(self):
+        if self.pdf is None:
+            return
+
+        if not self.hobonet:
+            self._load_hobonet_popup()
+
+        sentences = []
+        for i in range(0, len(self.ocr_text), 35):
+            sentences.append(self.ocr_text[i:i + 35].lower())
+
+        ret = ""
+        for sent in sentences:
+            chars = []
+
+            for c in sent:
+                if c in self.vocab['char2idx']:
+                    chars.append(self.vocab['char2idx'][c])
+                else:
+                    chars.append(self.vocab['char2idx']['#'])
+
+            m_input = [np.zeros((1, 35)), np.zeros((1, 35))]
+            for i, c in enumerate(chars):
+                m_input[0][0, i] = c
+
+            for c_i in range(1, 35):
+                out = self.hobonet.predict(m_input)
+                out_c_i = out[0][c_i - 1].argmax()
+
+                if out_c_i == 0:
+                    continue
+
+                ret += self.vocab['idx2char'][str(out_c_i)]
+                m_input[1][0, c_i] = out_c_i
+
+        self.ocr_text = ret
+        with open(self.ocr_text_path, 'w') as out:
+            out.write(self.ocr_text)
+
+        self._display_ocr_text()
 
     def _load_file(self):
         self._clear()

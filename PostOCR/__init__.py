@@ -3,8 +3,9 @@ from .helpbox import HelpBox
 from .hoverbutton import HoverButton
 from .menubox import MenuBox
 from .tooltip import ToolTip
+from .ocr_reader import OCRReader
+from .model import *
 from .PostOCR import PostOCR
-from .model import HoboOCR
-from .dataset import DataGenerator
+
 
 name = 'pdfviewer'

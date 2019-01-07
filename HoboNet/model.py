@@ -18,7 +18,7 @@ def attend(key_vec, context_mat, context_mat_time_steps, w1, w2):
     att_energies = K.relu(K.reshape(att_energies, (-1, context_mat_time_steps)))
     att_weigts = K.softmax(att_energies)
     return get_context_vec(context_mat, att_weigts), att_weigts
-
+    
 
 class AttentionDecoder(Layer):
 
@@ -35,29 +35,29 @@ class AttentionDecoder(Layer):
         assert len(input_shape) == 2
 
         self.att_kernel = self.add_weight(name='att_kernel_1',
-                                          shape=(self.output_dim + input_shape[1][2], input_shape[1][2]),
+                                          shape=(self.output_dim + input_shape[1][2],  input_shape[1][2]),
                                           initializer='uniform',
                                           trainable=True)
-
-        self.att_kernel_2 = self.add_weight(name='att_kernel_2',
+        
+        self.att_kernel_2 = self.add_weight(name='att_kernel_2', 
                                             shape=(input_shape[1][2], 1),
                                             initializer='uniform',
                                             trainable=True)
 
         step_input_shape = (input_shape[0][0], input_shape[0][2] + input_shape[1][2])
         self.rnn_cell.build(step_input_shape)
-
+        
         self._trainable_weights += self.rnn_cell.trainable_weights
         self._non_trainable_weights += self.rnn_cell.non_trainable_weights
-
+        
         self.context_mat_time_steps = input_shape[1][1]
-
-        super(AttentionDecoder, self).build(input_shape)
+            
+        super(AttentionDecoder, self).build(input_shape)  
 
     def get_initial_state(self, inputs):
-        initial_state = K.zeros_like(inputs)
-        initial_state = K.sum(initial_state, axis=(1, 2))
-        initial_state = K.expand_dims(initial_state)
+        initial_state = K.zeros_like(inputs)   
+        initial_state = K.sum(initial_state, axis=(1, 2))   
+        initial_state = K.expand_dims(initial_state)   
         if hasattr(self.rnn_cell.state_size, '__len__'):
             return [K.tile(initial_state, [1, dim]) for dim in self.rnn_cell.state_size]
         else:
@@ -65,23 +65,23 @@ class AttentionDecoder(Layer):
 
     def call(self, input):
         inputs, context_mat = input
-
+        
         def step(inputs, states):
             hid = states[0]
             ctx_vec, att_weigts = attend(hid, context_mat, self.context_mat_time_steps,
                                          self.att_kernel, self.att_kernel_2)
             rnn_inp = K.concatenate((inputs, ctx_vec), axis=1)
             return self.rnn_cell.call(rnn_inp, states)
-
+            
         timesteps = inputs.shape[1]
-
+        
         initial_state = self.get_initial_state(inputs)
-
+        
         last_output, outputs, states = K.rnn(step,
                                              inputs,
                                              initial_state,
                                              input_length=timesteps)
-
+        
         return outputs
 
     def compute_output_shape(self, input_shape):
@@ -104,4 +104,4 @@ def get_model(embed_size=10, enc_seq_length=35, vocab_size=112, dec_seq_length=3
     model = Model([inp, inp_cond], decoded)
     model.compile('adam', 'categorical_crossentropy')
 
-    return model
+    return model 
