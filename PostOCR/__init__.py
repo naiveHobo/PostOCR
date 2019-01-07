@@ -8,4 +8,4 @@ from .model import *
 from .PostOCR import PostOCR
 
 
-name = 'pdfviewer'
+name = 'PostOCR'
