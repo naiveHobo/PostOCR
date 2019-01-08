@@ -8,8 +8,8 @@ from model import get_model
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default="./data/prepped.h5", help='Path to HDF5 file containing data')
-parser.add_argument('--weights_path', type=str, default="./weights/model.h5", help='Path to Weights checkpoint')
+parser.add_argument('--dataset', type=str, default="./data/data.h5", help='Path to HDF5 file containing data')
+parser.add_argument('--weights_path', type=str, default="./model/model.h5", help='Path to Weights checkpoint')
 
 args = parser.parse_args()
 
@@ -21,7 +21,7 @@ vocab = json.loads(hf['vocab'].value)
 
 
 def greedy_decoder(data):
-    return [np.argmax(d) for d in data]
+    return data.argmax()
 
 
 def beam_search_decoder(data, k):
@@ -51,8 +51,7 @@ def predict(sentence, decoder_fn=greedy_decoder):
             if c in vocab['char2idx']:
                 chars.append(vocab['char2idx'][c])
             else:
-                chars.append(vocab['char2idx']['#'])
-
+                chars.append(vocab['char2idx']['<'])
 
         m_input = [np.zeros((1, 35)), np.zeros((1, 35))]
         for i, c in enumerate(chars):

@@ -13,7 +13,7 @@ parser.add_argument('--train_dir', type=str, default="./checkpoints/", help='Pat
 
 args = parser.parse_args()
 
-assert(os.path.exists('./data/'), "Prepped data file is not available")
+assert os.path.exists(args.dataset), "Prepped data file is not available"
 
 if not os.path.exists(args.train_dir):
     os.mkdir(args.train_dir)
@@ -24,11 +24,11 @@ if not os.path.exists('./model/'):
 
 hf = h5py.File(args.dataset, 'r')
 
-num_epochs = 20
+num_epochs = 50
 batch_size = 64
 enc_seq_length = 35 
 dec_seq_length = 35
-vocab_size = 112
+vocab_size = 113
 
 inp_x = hf['train/raw_sent_mat'][:, :enc_seq_length]
 inp_cond_x = hf['train/gs_sent_mat'][:, :dec_seq_length]

@@ -8,8 +8,8 @@ class Vocabulary(object):
     def __init__(self):
         self.char2idx = {}
         self.idx2char = {}
-        self.idx = 1  # id 0 is reserved for padding
-        self.add_char('#')
+        self.idx = 0
+        self.add_char('<')
 
     def add_char(self, char):
         if char not in self.char2idx:

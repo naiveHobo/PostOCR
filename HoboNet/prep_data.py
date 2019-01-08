@@ -25,7 +25,7 @@ print('Training files found: {}'.format(len(filenames)))
 for filename in filenames:
     with open(filename) as f:
         lines = f.readlines()
-        raw_text = lines[0].replace('[OCR_toInput]', '').lower().strip()
+        raw_text = lines[1].replace('[OCR_aligned]', '').lower().strip()
         gs_text = lines[2].replace('[ GS_aligned]', '').lower().strip()
         raw_sents_train.append(raw_text)
         gs_sents_train.append(gs_text)
