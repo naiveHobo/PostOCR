@@ -6,7 +6,7 @@ def build_model(num_classes,
                 embedding_size=256,
                 learning_rate=1e-4):
 
-    with tf.varoable_scope('HoboNet'):
+    with tf.variable_scope('HoboNet'):
         with tf.variable_scope('encoder'):
             batch_size = tf.placeholder(tf.int64, name='batch_size')
 
@@ -72,6 +72,7 @@ def build_model(num_classes,
     train_step = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(total_loss)
 
     train_summary = tf.summary.scalar('training_loss', total_loss)
+    val_summary = tf.summary.scalar('val_loss', total_loss)
 
     # The following are accessible once the graph has been built:
     return dict(
@@ -87,5 +88,6 @@ def build_model(num_classes,
         logits=logits,
         data_iter=data_iter,
         saver=tf.train.Saver(),
-        train_summary=train_summary
+        train_summary=train_summary,
+        val_summary=val_summary
     )

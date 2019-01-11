@@ -464,7 +464,7 @@ class PostOCR(Frame):
 
         formatted = comparison.show_changes()
 
-        self._display_ocr_text(text=self.ocr_corrected_text, label_text="Detected OCR Errors", show_errors=True)
+        self._display_ocr_text(text=formatted, label_text="Detected OCR Errors", show_errors=True)
 
     def _correct_errors(self):
         if self.pdf is None:

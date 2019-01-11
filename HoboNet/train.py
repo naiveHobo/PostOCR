@@ -13,9 +13,8 @@ import tensorflow as tf
 import time
 import json
 import os
-import sys
 
-from model import build_bidirectional_graph_with_dynamic_rnn
+from model import build_model
 from config import *
 
 
@@ -81,9 +80,10 @@ vocab_tuple = (idx_vocab, vocab_idx, tr_vocab_size)
 
 # All input arrays are padded to get uniform input
 MAX_LEN = tr_max_len
-print("\n+++++++++++++++")
+print("\n+++++++++++++++++++++++++++++++++++++++++++++")
 print("Max sequence length: {}".format(MAX_LEN))
-print("+++++++++++++++\n")
+print("Change 'MAX_SEQ_LENGTH' param in config to this value")
+print("+++++++++++++++++++++++++++++++++++++++++++++\n")
 
 
 # Character to integer conversion and padding

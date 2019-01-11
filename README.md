@@ -15,12 +15,6 @@ cd PostOCR/
 sudo pip3 install .
 ```
 
-Download the HoboNet model and data files:
-- [Model file](https://drive.google.com/open?id=1MydXPvgGsRQ31DTOh45YG0lwRKYFk3xq):  
-Place the model.h5 file in **PostOCR/HoboNet/model/** directory.
-- [Data file](https://drive.google.com/open?id=1fjwQ7bMx4zYlBt1uTi8pI6Fe1Ej1vL3x):  
-Place the data.h5 file in **PostOCR/HoboNet/data/** directory.
-
 ## Instructions
 To start PostOCR:
 ```
