@@ -337,10 +337,12 @@ class PostOCR(Frame):
         if self.pdf is None:
             return
 
-        text = ''
+        text = []
         for page in self.pdf.pages:
             image = page.to_image(resolution=150)
-            text += ' ' + pytesseract.image_to_string(image.original)
+            text.append(pytesseract.image_to_string(image.original))
+
+        text = ' '.join(text)
 
         dirname = os.path.dirname(self.path)
         filename = os.path.basename(self.path).replace('pdf', 'txt')
@@ -398,7 +400,9 @@ class PostOCR(Frame):
         return path
 
     def _run_hobonet(self):
-        raw_x = self.ocr_text
+        raw_x = []
+        for idx in range(0, len(self.ocr_text), self.max_seq_len):
+            raw_x.append(list(self.ocr_text[idx:idx+self.max_seq_len]))
 
         result = ""
 
@@ -408,43 +412,36 @@ class PostOCR(Frame):
             saver.restore(sess, checkpoint)
             g = tf.get_default_graph()
 
-            batch_size = g.get_tensor_by_name("encoder/batch_size:0")
+            batch_tensor = g.get_tensor_by_name("HoboNet/encoder/batch_size:0")
 
-            x = g.get_tensor_by_name("HoboNet/HoboNet/encoder/input_placeholder:0")
+            x = g.get_tensor_by_name("HoboNet/encoder/input_placeholder:0")
             y = g.get_tensor_by_name("HoboNet/encoder/labels_placeholder:0")
 
             make_iter = g.get_operation_by_name("HoboNet/encoder/MakeIterator")
 
-            data = [[self.hobonet_data['vocab_idx'][c] if c in self.hobonet_data['vocab_idx']
-                     else self.hobonet_data['vocab_idx']['<UNK>'] for c in arr] for arr in raw_x]
+            data_x = [[self.hobonet_data['vocab_idx'][c] if c in self.hobonet_data['vocab_idx']
+                       else self.hobonet_data['vocab_idx']['<UNK>'] for c in arr] for arr in raw_x]
 
-            steps = len(data) // 100
-            if len(data) % 100 != 0:
-                steps += 1
+            data_y = np.array([np.pad(line, (0, self.max_seq_len - len(line) + self.edit_space), 'constant',
+                                      constant_values=0)
+                               for line in data_x])
+            data_x = np.array(
+                [np.pad(line, (0, self.max_seq_len - len(line)), 'constant', constant_values=0) for line in data_x])
 
-            for step in range(steps):
-                data_y = np.array(
-                    [np.pad(line, (0, self.max_seq_len - len(line) + self.edit_space), 'constant', constant_values=0)
-                     for line in data[step * 100:(step + 1) * 100]])
+            sess.run(make_iter, feed_dict={x: data_x,
+                                           y: data_y,
+                                           batch_tensor: len(data_x)})
 
-                data_x = np.array(
-                    [np.pad(line, (0, self.max_seq_len - len(line)), 'constant', constant_values=0) for line in
-                     data[step * 100:(step + 1) * 100]])
+            preds = g.get_tensor_by_name("HoboNet/decoder/preds:0")
 
-                sess.run(make_iter, feed_dict={x: data_x,
-                                               y: data_y,
-                                               batch_size: 100})
+            output = sess.run(preds)
 
-                preds = g.get_tensor_by_name("HoboNet/decoder/preds:0")
+            idx = np.where(output == 0)
+            new_out = np.delete(output, idx)
 
-                output = sess.run(preds)
-
-                idx = np.where(output == 0)
-                new_out = np.delete(output, idx)
-
-                char_func = np.vectorize(lambda t: self.hobonet_data['idx_vocab'][str(t)])
-                chars = char_func(new_out)
-                result += "".join(chars)
+            char_func = np.vectorize(lambda t: self.hobonet_data['idx_vocab'][str(t)])
+            chars = char_func(new_out)
+            result += "".join(chars)
 
         return result
 

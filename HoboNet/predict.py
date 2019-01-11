@@ -47,7 +47,7 @@ with open(vocab_idx_file) as vocab_file:
 
 raw_x = get_data(args.input_file)
 
-data_x = [[vocab_idx[c] for c in arr] for arr in raw_x]
+data_x = [[vocab_idx[c] if c in vocab_idx else vocab_idx['<UNK>'] for c in arr] for arr in raw_x]
 
 data_y = np.array([np.pad(line, (0, MAX_SEQ_LENGTH - len(line) + EDIT_SPACE), 'constant', constant_values=0)
                    for line in data_x])
