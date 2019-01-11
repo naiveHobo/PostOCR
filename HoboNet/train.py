@@ -1,13 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Takes in 2 files as arguments. The first is a text file that contains a list of training file paths,
-with each training file path on a separate line, and the second file is the test data.
-The program reads in the files, builds a seq2seq neural model based on Tensorflow, dynamically trains on the training data
-in batches for a number of epochs (as determined by the EPOCHS variable), and tests the trained model on the test data.
-
-*All data is expected to have been preprocessed by align.py*
-"""
-
 import numpy as np
 import tensorflow as tf
 import time
