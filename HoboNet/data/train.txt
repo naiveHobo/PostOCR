@@ -1,0 +1,3 @@
+/home/naivehobo/Desktop/BYOB/RRD BYOB 2018 (Problem statements _ Datasets)/challenge2/PostOCR/HoboNet/data/train/emma-Azure-1894
+/home/naivehobo/Desktop/BYOB/RRD BYOB 2018 (Problem statements _ Datasets)/challenge2/PostOCR/HoboNet/data/train/emma_LIOS_01-10
+/home/naivehobo/Desktop/BYOB/RRD BYOB 2018 (Problem statements _ Datasets)/challenge2/PostOCR/HoboNet/data/train/LIOS_somefurther_1-19

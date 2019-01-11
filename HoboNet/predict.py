@@ -1,77 +1,89 @@
-import h5py
-import argparse
+import os
 import json
 import numpy as np
-import math
+import tensorflow as tf
+from argparse import ArgumentParser
 
-from model import get_model
+from config import *
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default="./data/data.h5", help='Path to HDF5 file containing data')
-parser.add_argument('--weights_path', type=str, default="./model/model.h5", help='Path to Weights checkpoint')
+parser = ArgumentParser()
+
+parser.add_argument('--input_file',
+                    help='path to text file containing data to run HoboNet on',
+                    required=True)
+
+parser.add_argument('--output_file',
+                    help='name with which HoboNet output should be saved',
+                    default="output.txt")
+
+parser.add_argument('--model_path',
+                    help='path to directory containing saved HoboNet model',
+                    default="./model/")
+
 
 args = parser.parse_args()
 
-hf = h5py.File(args.dataset, 'r')
-m = get_model()
-m.load_weights(args.weights_path)
-
-vocab = json.loads(hf['vocab'].value)
+vocab_idx_file = os.path.join(args.model_path, "hobonet-vocab-dictionaries")
 
 
-def greedy_decoder(data):
-    return data.argmax()
+def get_data(file_name):
+    with open(file_name, 'r') as f:
+        raw_x = []
+        for line in f.readlines():
+            line = line.strip() + '\n'
+            if line:
+                raw_x.append(list(line))
+        print("X Data Length:", len(raw_x))
+    return raw_x
 
 
-def beam_search_decoder(data, k):
-    sequences = [[list(), 1.0]]
-    for row in data:
-        all_candidates = list()
-        for i in range(len(sequences)):
-            seq, score = sequences[i]
-            for j in range(len(row)):
-                candidate = [seq + [j], score * -math.log(row[j])]
-                all_candidates.append(candidate)
-        ordered = sorted(all_candidates, key=lambda tup: tup[1])
-        sequences = ordered[:k]
-    return sequences
+with open(vocab_idx_file) as vocab_file:
+    vocab_tuple = json.load(vocab_file)
+    idx_vocab = vocab_tuple[0]
+    vocab_idx = vocab_tuple[1]
+    tr_vocab_size = vocab_tuple[2]
 
 
-def predict(sentence, decoder_fn=greedy_decoder):
-    sentences = []
-    for i in range(0, len(sentence), 35):
-        sentences.append(sentence[i:i+35].lower())
+raw_x = get_data(args.input_file)
 
-    ret = ""
-    for sent in sentences:
-        chars = []
+data_x = [[vocab_idx[c] for c in arr] for arr in raw_x]
 
-        for c in sent:
-            if c in vocab['char2idx']:
-                chars.append(vocab['char2idx'][c])
-            else:
-                chars.append(vocab['char2idx']['<'])
-
-        m_input = [np.zeros((1, 35)), np.zeros((1, 35))]
-        for i, c in enumerate(chars):
-            m_input[0][0, i] = c
-
-        for c_i in range(1, 35):
-            out = m.predict(m_input)
-            out_c_i = decoder_fn(out[0][c_i-1])
-
-            if out_c_i == 0:
-                continue
-
-            ret += vocab['idx2char'][str(out_c_i)]
-            m_input[1][0, c_i] = out_c_i
-
-    return ret
+data_y = np.array([np.pad(line, (0, MAX_SEQ_LENGTH - len(line) + EDIT_SPACE), 'constant', constant_values=0)
+                   for line in data_x])
+data_x = np.array([np.pad(line, (0, MAX_SEQ_LENGTH - len(line)), 'constant', constant_values=0) for line in data_x])
 
 
-while True:
-    print("Enter a sentence: ")
-    sent = input()
-    print(predict(sent))
-    print("===============")
+with tf.Session() as sess:
+    checkpoint = tf.train.latest_checkpoint(args.model_path)
+    saver = tf.train.import_meta_graph("{}.meta".format(checkpoint))
+    saver.restore(sess, checkpoint)
+    g = tf.get_default_graph()
+
+    init_op = tf.global_variables_initializer()
+    batch_size = g.get_tensor_by_name("HoboNet/encoder/batch_size:0")
+
+    x = g.get_tensor_by_name("HoboNet/encoder/input_placeholder:0")
+    y = g.get_tensor_by_name("HoboNet/encoder/labels_placeholder:0")
+
+    dataset = tf.data.Dataset.from_tensor_slices((x, y)).batch(batch_size).repeat()
+    make_iter = g.get_operation_by_name("HoboNet/encoder/MakeIterator")
+
+    sess.run(make_iter, feed_dict={x: data_x,
+                                   y: data_y,
+                                   batch_size: len(data_x)})
+
+    preds = g.get_tensor_by_name("HoboNet/decoder/preds:0")
+
+    output = sess.run(preds)
+
+    idx = np.where(output == 0)
+    new_out = np.delete(output, idx)
+
+    char_func = np.vectorize(lambda t: idx_vocab[str(t)])
+    chars = char_func(new_out)
+    result = "".join(chars)
+
+
+with open(args.output_file, 'w') as out:
+    out.write(result.strip())

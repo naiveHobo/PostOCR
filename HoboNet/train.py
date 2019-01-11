@@ -1,83 +1,149 @@
+# -*- coding: utf-8 -*-
+"""
+Takes in 2 files as arguments. The first is a text file that contains a list of training file paths,
+with each training file path on a separate line, and the second file is the test data.
+The program reads in the files, builds a seq2seq neural model based on Tensorflow, dynamically trains on the training data
+in batches for a number of epochs (as determined by the EPOCHS variable), and tests the trained model on the test data.
+
+*All data is expected to have been preprocessed by align.py*
+"""
+
+import numpy as np
+import tensorflow as tf
+import time
+import json
 import os
-import h5py
-import keras
-import random
-import argparse
+import sys
 
-from model import get_model
+from model import build_bidirectional_graph_with_dynamic_rnn
+from config import *
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default="./data/data.h5", help='Path to HDF5 file containg data')
-parser.add_argument('--train_dir', type=str, default="./checkpoints/", help='Path to Weights checkpoint')
+def get_data(file_name):
+    max_len = 0
+    all_data = ""
+    raw_x = []
+    raw_y = []
 
-args = parser.parse_args()
-
-assert os.path.exists(args.dataset), "Prepped data file is not available"
-
-if not os.path.exists(args.train_dir):
-    os.mkdir(args.train_dir)
-
-if not os.path.exists('./model/'):
-    os.mkdir('./model/')
-
-
-hf = h5py.File(args.dataset, 'r')
-
-num_epochs = 50
-batch_size = 64
-enc_seq_length = 35 
-dec_seq_length = 35
-vocab_size = 113
-
-inp_x = hf['train/raw_sent_mat'][:, :enc_seq_length]
-inp_cond_x = hf['train/gs_sent_mat'][:, :dec_seq_length]
-out_y = hf['train/gs_sent_mat'][:, 1:dec_seq_length + 1]
-
-val_x = hf['val/raw_sent_mat'][:, :enc_seq_length]
-val_cond_x = hf['val/gs_sent_mat'][:, :dec_seq_length]
-val_y = hf['val/gs_sent_mat'][:, 1:dec_seq_length + 1]
-
-tr_data = list(range(inp_x.shape[0]))
-val_data = list(range(val_x.shape[0]))
+    with open(file_name, 'r') as f:
+        count = 1
+        for line in f.readlines():
+            line = line.strip() + '\n'
+            if count % 3 == 1:
+                raw_y.append(list(line))
+            elif count % 3 == 2:
+                raw_x.append(list(line))
+            count += 1
+            if len(line) > max_len:
+                max_len = len(line)
+            all_data += line
+    print(file_name, max_len)
+    return raw_x, raw_y, all_data, max_len
 
 
-def load_train_data(batch_size=64):
-    while True:
-        random.shuffle(tr_data)
-        for i in range(0, len(tr_data) - batch_size, batch_size):
-            idxs = tr_data[i:i + batch_size]
-            yield [inp_x[idxs], inp_cond_x[idxs]], keras.utils.to_categorical(out_y[idxs], num_classes=vocab_size)
+def make_train_dict(tr_data):
+    vocab = set(tr_data)
+    idx_to_vocab = dict()
+    idx_to_vocab[0] = "<PAD>"
+    idx_to_vocab[1] = "<UNK>"
+    count = 2
+    for char in vocab:
+        idx_to_vocab[count] = char
+        count += 1
+
+    vocab_size = len(idx_to_vocab)
+    vocab_to_idx = dict(zip(idx_to_vocab.values(), idx_to_vocab.keys()))
+
+    return idx_to_vocab, vocab_to_idx, vocab_size
 
 
-def load_val_data(batch_size=64):
-    while True:
-        for i in range(0, len(val_data) - batch_size, batch_size):
-            idxs = val_data[i:i + batch_size]
-            yield [val_x[idxs], val_cond_x[idxs]], keras.utils.to_categorical(val_y[idxs], num_classes=vocab_size)
+assert os.path.exists(TRAIN_FILE), "ERROR: Cannot find {}".format(TRAIN_FILE)
+
+tr_raw_x = []
+tr_raw_y = []
+all_tr_data = ""
+tr_max_len = 0
+
+with open(TRAIN_FILE, 'r') as f_names:
+    for name in f_names.readlines():
+        print("Getting data from " + name)
+        name = name.strip()
+        r_x, r_y, data, mx_len = get_data(name)
+        tr_raw_x += r_x
+        tr_raw_y += r_y
+        all_tr_data += data
+        if tr_max_len < mx_len:
+            tr_max_len = mx_len
 
 
-tr_gen = load_train_data(batch_size=batch_size)
-val_gen = load_val_data(batch_size=batch_size)
+idx_vocab, vocab_idx, tr_vocab_size = make_train_dict(all_tr_data)
+vocab_tuple = (idx_vocab, vocab_idx, tr_vocab_size)
 
-m = get_model()
-best_val_loss = None
+# All input arrays are padded to get uniform input
+MAX_LEN = tr_max_len
+print("\n+++++++++++++++")
+print("Max sequence length: {}".format(MAX_LEN))
+print("+++++++++++++++\n")
 
 
-for ep in range(num_epochs):
-    print("Epoch: {}".format(ep))
-    m.fit_generator(tr_gen, steps_per_epoch=100, epochs=1)
-    loss = m.evaluate_generator(val_gen, steps=len(val_data)//batch_size, verbose=True)
-    if not best_val_loss:
-        best_val_loss = loss
-        continue
-    if loss < best_val_loss:
-        print("\n===========================\n")
-        print("Saving model, epoch: {}, val loss: {}".format(ep, loss))
-        print("\n===========================\n")
-        m.save_weights(os.path.join(args.train_dir, 'model-{}-{:.4f}.h5'.format(ep, loss)))
-        best_val_loss = loss
+# Character to integer conversion and padding
+tr_X_data = [[vocab_idx[c] for c in arr] for arr in tr_raw_x]
+tr_Y_data = [[vocab_idx[c] for c in arr] for arr in tr_raw_y]
 
-m.save_weights('./model/model.h5')
+tr_X_data = np.array([np.pad(line, (0, MAX_LEN-len(line)), 'constant', constant_values=0) for line in tr_X_data])
+tr_Y_data = np.array([np.pad(line, (0, MAX_LEN-len(line)+EDIT_SPACE), 'constant', constant_values=0) for line in tr_Y_data])
 
-print("Training is finished")
+# Save dictionaries for future use
+with open(MODEL_PATH + "-vocab-dictionaries", 'w') as jsonfile:
+    json.dump(vocab_tuple, jsonfile)
+
+t = time.time()
+graph = build_model(num_classes=tr_vocab_size)
+
+writer = tf.summary.FileWriter(LOG_DIR, graph=tf.get_default_graph())
+
+TRAIN_STEPS_PER_EPOCH = len(tr_X_data) // BATCH_SIZE
+
+with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+
+    global_step = 0
+
+    sess.run(graph['data_iter'].initializer,
+             feed_dict={graph['x']: tr_X_data,
+                        graph['y']: tr_Y_data,
+                        graph['batch_size']: BATCH_SIZE})
+
+    for i in range(NUM_EPOCHS):
+        steps = 0
+        tot_loss = 0
+        training_state = None
+
+        print("\nEPOCH: {}".format(i))
+
+        for _ in range(TRAIN_STEPS_PER_EPOCH):
+            loss_value, training_state, _, summary = sess.run([graph['total_loss'],
+                                                               graph['final_state'],
+                                                               graph['train_step'],
+                                                               graph['train_summary']])
+
+            if steps % 10 == 0:
+                writer.add_summary(summary, global_step)
+
+            print("Step: {} \t Loss: {}".format(global_step, loss_value))
+
+            tot_loss += loss_value
+            steps += 1
+            global_step += 1
+
+            if global_step % SAVE_CHECKPOINT_STEP == 0:
+                print("\nSaving checkpoint...\n")
+                graph['saver'].save(sess, os.path.join(CHECKPOINT_DIR,
+                                                       "hobonet-{}-{:.4f}.ckpt".format(global_step, tot_loss / steps)),
+                                    global_step=global_step)
+
+        print("\nAverage training loss: {}\n".format(tot_loss / steps))
+
+    graph['saver'].save(sess, MODEL_PATH)
+
+print("\nTraining was completed!\n")

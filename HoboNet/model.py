@@ -1,107 +1,91 @@
-from keras.models import *
-from keras.layers import *
-from keras import backend as K
-from keras.engine.topology import Layer
+import tensorflow as tf
 
 
-def get_context_vec(context_mat, att_weights):
-    att_weights_rep = K.expand_dims(att_weights, 2)
-    att_weights_rep = K.repeat_elements(att_weights_rep, context_mat.shape[2], 2)
-    return K.sum(att_weights_rep * context_mat, axis=1)
+def build_model(num_classes,
+                state_size=100,
+                embedding_size=256,
+                learning_rate=1e-4):
 
+    with tf.varoable_scope('HoboNet'):
+        with tf.variable_scope('encoder'):
+            batch_size = tf.placeholder(tf.int64, name='batch_size')
 
-def attend(key_vec, context_mat, context_mat_time_steps, w1, w2):
-    key_rep = K.repeat(key_vec, context_mat_time_steps)
-    concated = K.concatenate([key_rep, context_mat], axis=-1)
-    concated_r = K.reshape(concated, (-1, concated.shape[-1]))
-    att_energies = K.dot((K.dot(concated_r, w1)), w2)
-    att_energies = K.relu(K.reshape(att_energies, (-1, context_mat_time_steps)))
-    att_weigts = K.softmax(att_energies)
-    return get_context_vec(context_mat, att_weigts), att_weigts
-    
+            x = tf.placeholder(tf.int32, shape=(None, None), name='input_placeholder')
+            y = tf.placeholder(tf.int32, shape=(None, None), name='labels_placeholder')
 
-class AttentionDecoder(Layer):
+            # The following allows the model to dynamically accept different sizes of x and also
+            # produces batches of the input data.
+            dataset = tf.data.Dataset.from_tensor_slices((x, y)).batch(batch_size).repeat()
 
-    def __init__(self, rnn_cell, **kwargs):
-        super(AttentionDecoder, self).__init__(**kwargs)
-        self.output_dim = rnn_cell.state_size[0]
-        self.rnn_cell = rnn_cell
-        self.att_kernel = None
-        self.att_kernel_2 = None
-        self.context_mat_time_steps = None
+            data_iter = dataset.make_initializable_iterator()
+            features, labels = data_iter.get_next()
 
-    def build(self, input_shape):
-        assert type(input_shape) is list
-        assert len(input_shape) == 2
+            # Embeddings convert each integer to a vector representation
+            embeddings = tf.get_variable('embedding_matrix', [num_classes, embedding_size])
+            rnn_inputs = tf.nn.embedding_lookup(embeddings, features)
+            dec_inputs = tf.nn.embedding_lookup(embeddings, labels)
 
-        self.att_kernel = self.add_weight(name='att_kernel_1',
-                                          shape=(self.output_dim + input_shape[1][2],  input_shape[1][2]),
-                                          initializer='uniform',
-                                          trainable=True)
-        
-        self.att_kernel_2 = self.add_weight(name='att_kernel_2', 
-                                            shape=(input_shape[1][2], 1),
-                                            initializer='uniform',
-                                            trainable=True)
+            # Encoder
+            fw_cell = tf.nn.rnn_cell.LSTMCell(state_size, state_is_tuple=True)
+            bw_cell = tf.nn.rnn_cell.LSTMCell(state_size, state_is_tuple=True)
 
-        step_input_shape = (input_shape[0][0], input_shape[0][2] + input_shape[1][2])
-        self.rnn_cell.build(step_input_shape)
-        
-        self._trainable_weights += self.rnn_cell.trainable_weights
-        self._non_trainable_weights += self.rnn_cell.non_trainable_weights
-        
-        self.context_mat_time_steps = input_shape[1][1]
-            
-        super(AttentionDecoder, self).build(input_shape)  
+            # The bidirectional model reads in the input from beginning to end and from end to begninng
+            # and outputs both the forward and back outputs and the forward and backward states.
+            dynam_batch_size = tf.shape(features)[0]
+            fw_init_state = fw_cell.zero_state(dynam_batch_size, tf.float32)
+            bw_init_state = bw_cell.zero_state(dynam_batch_size, tf.float32)
+            (fw_output, bw_output), (fw_final_state, bw_final_state) = tf.nn.bidirectional_dynamic_rnn(
+                fw_cell,
+                bw_cell,
+                rnn_inputs,
+                initial_state_fw=fw_init_state,
+                initial_state_bw=bw_init_state)
 
-    def get_initial_state(self, inputs):
-        initial_state = K.zeros_like(inputs)   
-        initial_state = K.sum(initial_state, axis=(1, 2))   
-        initial_state = K.expand_dims(initial_state)   
-        if hasattr(self.rnn_cell.state_size, '__len__'):
-            return [K.tile(initial_state, [1, dim]) for dim in self.rnn_cell.state_size]
-        else:
-            return [K.tile(initial_state, [1, self.rnn_cell.state_size])]
+            # Decoder
+            # The forward and backward states need to be decomposed and concatenated into a single state in order to
+            # feed it into the LSTM decoder. This results in a state size that is twice as large as the encoder state size.
 
-    def call(self, input):
-        inputs, context_mat = input
-        
-        def step(inputs, states):
-            hid = states[0]
-            ctx_vec, att_weigts = attend(hid, context_mat, self.context_mat_time_steps,
-                                         self.att_kernel, self.att_kernel_2)
-            rnn_inp = K.concatenate((inputs, ctx_vec), axis=1)
-            return self.rnn_cell.call(rnn_inp, states)
-            
-        timesteps = inputs.shape[1]
-        
-        initial_state = self.get_initial_state(inputs)
-        
-        last_output, outputs, states = K.rnn(step,
-                                             inputs,
-                                             initial_state,
-                                             input_length=timesteps)
-        
-        return outputs
+            enc_final_state_c = tf.concat((fw_final_state.c, bw_final_state.c), 1)
+            enc_final_state_h = tf.concat((fw_final_state.h, bw_final_state.h), 1)
+            enc_final_state = tf.contrib.rnn.LSTMStateTuple(c=enc_final_state_c,
+                                                            h=enc_final_state_h)
+        with tf.variable_scope('decoder'):
+            W = tf.get_variable('W', [2 * state_size, num_classes])
+            b = tf.get_variable('b', [num_classes], initializer=tf.constant_initializer(0.0))
 
-    def compute_output_shape(self, input_shape):
-        return input_shape[0][0], input_shape[0][1], self.output_dim
+            decoder_cell = tf.nn.rnn_cell.LSTMCell(2 * state_size, state_is_tuple=True)
+            decoder_init_state = decoder_cell.zero_state(dynam_batch_size, tf.float32)
 
+            rnn_outputs, final_state = tf.nn.dynamic_rnn(decoder_cell, dec_inputs, initial_state=enc_final_state)
 
-def get_model(embed_size=10, enc_seq_length=35, vocab_size=113, dec_seq_length=35):
-    inp = Input((enc_seq_length,))
-    embeddings_layer = Embedding(vocab_size, embed_size)
+            # reshape rnn_outputs and y so we can get the logits in a single matmul
+            rnn_outputs = tf.reshape(rnn_outputs, [-1, 2 * state_size])
+            y_reshaped = tf.reshape(labels, [-1])
 
-    imp_x = embeddings_layer(inp)
-    context_mat = Bidirectional(LSTM(256, return_sequences=True))(imp_x)
+            logits = tf.matmul(rnn_outputs, W) + b
 
-    inp_cond = Input((dec_seq_length,))
-    inp_cond_x = embeddings_layer(inp_cond)
+            # Greedy search
+            predictions = tf.argmax(logits, axis=1, name='preds')
 
-    decoded = AttentionDecoder(LSTMCell(256))([inp_cond_x, context_mat])
-    decoded = TimeDistributed(Dense(vocab_size, activation='softmax'))(decoded)
+    total_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=y_reshaped))
 
-    model = Model([inp, inp_cond], decoded)
-    model.compile('adam', 'categorical_crossentropy')
+    train_step = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(total_loss)
 
-    return model 
+    train_summary = tf.summary.scalar('training_loss', total_loss)
+
+    # The following are accessible once the graph has been built:
+    return dict(
+        x=x,
+        y=y,
+        fw_init=fw_init_state,
+        bw_init=bw_init_state,
+        batch_size=batch_size,
+        final_state=final_state,
+        total_loss=total_loss,
+        train_step=train_step,
+        preds=predictions,
+        logits=logits,
+        data_iter=data_iter,
+        saver=tf.train.Saver(),
+        train_summary=train_summary
+    )

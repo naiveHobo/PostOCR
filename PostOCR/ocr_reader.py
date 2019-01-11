@@ -5,13 +5,13 @@ from .config import BACKGROUND_COLOR
 
 class OCRReader(Frame):
 
-    def __init__(self, master, text, **kw):
+    def __init__(self, master, text, label_text, show_errors, **kw):
         Frame.__init__(self, master, **kw)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=0)
         self.rowconfigure(1, weight=0)
 
-        Label(self, text="Text extracted by OCR", anchor='nw', width=70,
+        Label(self, text=label_text, anchor='nw', width=70,
               font="OpenSans 22 bold", fg='white', bg=BACKGROUND_COLOR, bd=2).grid(row=0, column=0, padx=20, pady=20)
 
         text_frame = Frame(self, height=440, width=550, bg=BACKGROUND_COLOR, bd=2, relief=SUNKEN)

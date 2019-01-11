@@ -1,6 +1,5 @@
 import os
 import json
-import h5py
 import subprocess
 import pdfplumber
 import pytesseract
@@ -10,7 +9,7 @@ from wand.exceptions import WandException
 from tkinter import *
 from tkinter import filedialog, simpledialog, messagebox
 
-import keras
+import tensorflow as tf
 import numpy as np
 
 from .config import ROOT_PATH, BACKGROUND_COLOR, HIGHLIGHT_COLOR
@@ -19,7 +18,7 @@ from .helpbox import HelpBox
 from .menubox import MenuBox
 from .display_canvas import DisplayCanvas
 from .ocr_reader import OCRReader
-from .model import get_model
+from .utils import Compare
 
 
 class PostOCR(Frame):
@@ -34,18 +33,23 @@ class PostOCR(Frame):
         self.scale = 1.0
         self.rotate = 0
         self.save_path = None
-        self.hobonet = None
-        self.vocab = None
+        self.hobonet_path = os.path.join(ROOT_PATH, 'HoboNet/model/')
+        self.max_seq_len = 133
+        self.edit_space = 5
+        self.hobonet_data = dict()
         self.ocr_text = None
+        self.ocr_corrected_text = None
         self.ocr_text_path = None
-        self._load_hobonet()
+        self._load_hobonet_data()
         self._init_ui()
 
-    def _load_hobonet(self, path=os.path.join(ROOT_PATH, 'HoboNet/')):
-        hf = h5py.File(os.path.join(path, 'data/data.h5'), 'r')
-        self.vocab = json.loads(hf['vocab'].value)
-        self.hobonet = get_model()
-        self.hobonet.load_weights(os.path.join(path, 'model/model.h5'))
+    def _load_hobonet_data(self):
+        vocab_idx_file = os.path.join(self.hobonet_path, "hobonet-vocab-dictionaries")
+        with open(vocab_idx_file) as vocab_file:
+            vocab_tuple = json.load(vocab_file)
+            self.hobonet_data['idx_vocab'] = vocab_tuple[0]
+            self.hobonet_data['vocab_idx'] = vocab_tuple[1]
+            self.hobonet_data['tr_vocab_size'] = vocab_tuple[2]
 
     def _init_ui(self):
         ws = self.master.winfo_screenwidth()
@@ -85,7 +89,6 @@ class PostOCR(Frame):
         options.add_item('Open File...', self._open_file, seperator=True)
         options.add_item('Search...', self._search_text, seperator=True)
         options.add_item('Run OCR', self._run_ocr)
-        options.add_item('Load HoboNet...', self._load_hobonet_popup)
         options.add_item('Find OCR Errors', self._detect_errors)
         options.add_item('Fix OCR Errors', self._correct_errors, seperator=True)
         options.add_item('Help...', self._help, seperator=True)
@@ -336,7 +339,7 @@ class PostOCR(Frame):
 
         text = ''
         for page in self.pdf.pages:
-            image = page.to_image(resolution=int(self.scale * 80))
+            image = page.to_image(resolution=150)
             text += ' ' + pytesseract.image_to_string(image.original)
 
         dirname = os.path.dirname(self.path)
@@ -356,12 +359,10 @@ class PostOCR(Frame):
         with open(self.ocr_text_path, 'w') as out:
             out.write(self.ocr_text)
 
-        self._display_ocr_text()
+        self._display_ocr_text(text=self.ocr_text, label_text="Text extracted by OCR")
 
-    def _display_ocr_text(self):
+    def _display_ocr_text(self, text, label_text, show_errors=False):
         if self.pdf is None:
-            return
-        if not self.ocr_text:
             return
         ws = self.master.winfo_screenwidth()
         hs = self.master.winfo_screenheight()
@@ -376,7 +377,8 @@ class PostOCR(Frame):
         text_frame.maxsize(height=h, width=w)
         text_frame.rowconfigure(0, weight=1)
         text_frame.columnconfigure(0, weight=1)
-        OCRReader(text_frame, text=self.ocr_text, width=w, height=h, bg=BACKGROUND_COLOR, relief=SUNKEN).grid(row=0, column=0)
+        OCRReader(text_frame, text=text, label_text=label_text, show_errors=show_errors,
+                  width=w, height=h, bg=BACKGROUND_COLOR, relief=SUNKEN).grid(row=0, column=0)
 
     @staticmethod
     def _image_to_pdf(path):
@@ -395,63 +397,86 @@ class PostOCR(Frame):
             out.write(pdf)
         return path
 
-    def _load_hobonet_popup(self):
-        path = filedialog.askopenfilename(filetypes=[('HDF5 files', '*.hdf5', '*.h5')],
-                                          initialdir=os.getcwd(),
-                                          title="Select model file")
+    def _run_hobonet(self):
+        raw_x = self.ocr_text
 
-        if not path or path == '' or os.path.basename(path).split('.')[-1].lower() not in ['h5', 'hdf5']:
-            return
+        result = ""
 
-        self.hobonet = keras.models.load_model(path)
+        with tf.Session() as sess:
+            checkpoint = tf.train.latest_checkpoint(self.hobonet_path)
+            saver = tf.train.import_meta_graph("{}.meta".format(checkpoint))
+            saver.restore(sess, checkpoint)
+            g = tf.get_default_graph()
+
+            batch_size = g.get_tensor_by_name("encoder/batch_size:0")
+
+            x = g.get_tensor_by_name("HoboNet/HoboNet/encoder/input_placeholder:0")
+            y = g.get_tensor_by_name("HoboNet/encoder/labels_placeholder:0")
+
+            make_iter = g.get_operation_by_name("HoboNet/encoder/MakeIterator")
+
+            data = [[self.hobonet_data['vocab_idx'][c] if c in self.hobonet_data['vocab_idx']
+                     else self.hobonet_data['vocab_idx']['<UNK>'] for c in arr] for arr in raw_x]
+
+            steps = len(data) // 100
+            if len(data) % 100 != 0:
+                steps += 1
+
+            for step in range(steps):
+                data_y = np.array(
+                    [np.pad(line, (0, self.max_seq_len - len(line) + self.edit_space), 'constant', constant_values=0)
+                     for line in data[step * 100:(step + 1) * 100]])
+
+                data_x = np.array(
+                    [np.pad(line, (0, self.max_seq_len - len(line)), 'constant', constant_values=0) for line in
+                     data[step * 100:(step + 1) * 100]])
+
+                sess.run(make_iter, feed_dict={x: data_x,
+                                               y: data_y,
+                                               batch_size: 100})
+
+                preds = g.get_tensor_by_name("HoboNet/decoder/preds:0")
+
+                output = sess.run(preds)
+
+                idx = np.where(output == 0)
+                new_out = np.delete(output, idx)
+
+                char_func = np.vectorize(lambda t: self.hobonet_data['idx_vocab'][str(t)])
+                chars = char_func(new_out)
+                result += "".join(chars)
+
+        return result
 
     def _detect_errors(self):
         if self.pdf is None:
             return
 
-        if not self.hobonet:
-            self._load_hobonet_popup()
+        result = self._run_hobonet()
+        self.ocr_corrected_text = result
+
+        original_words = self.ocr_text.split()
+        edited_words = self.ocr_corrected_text.split()
+
+        comparison = Compare(edited_words, original_words)
+
+        comparison.set_alignment_strings()
+
+        formatted = comparison.show_changes()
+
+        self._display_ocr_text(text=self.ocr_corrected_text, label_text="Detected OCR Errors", show_errors=True)
 
     def _correct_errors(self):
         if self.pdf is None:
             return
 
-        if not self.hobonet:
-            self._load_hobonet_popup()
+        result = self._run_hobonet()
 
-        sentences = []
-        for i in range(0, len(self.ocr_text), 35):
-            sentences.append(self.ocr_text[i:i + 35].lower())
-
-        ret = ""
-        for sent in sentences:
-            chars = []
-
-            for c in sent:
-                if c in self.vocab['char2idx']:
-                    chars.append(self.vocab['char2idx'][c])
-                else:
-                    chars.append(self.vocab['char2idx']['#'])
-
-            m_input = [np.zeros((1, 35)), np.zeros((1, 35))]
-            for i, c in enumerate(chars):
-                m_input[0][0, i] = c
-
-            for c_i in range(1, 35):
-                out = self.hobonet.predict(m_input)
-                out_c_i = out[0][c_i - 1].argmax()
-
-                if out_c_i == 0:
-                    continue
-
-                ret += self.vocab['idx2char'][str(out_c_i)]
-                m_input[1][0, c_i] = out_c_i
-
-        self.ocr_text = ret
-        with open(self.ocr_text_path, 'w') as out:
+        self.ocr_corrected_text = result
+        with open(self.ocr_text_path.replace('.txt', '_corrected.txt'), 'w') as out:
             out.write(self.ocr_text)
 
-        self._display_ocr_text()
+        self._display_ocr_text(text=self.ocr_corrected_text, label_text="Corrected OCR Text")
 
     def _load_file(self):
         self._clear()
