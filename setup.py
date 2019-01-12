@@ -19,6 +19,7 @@ setuptools.setup(name='PostOCR',
                      'Pillow',
                      'pdfplumber',
                      'PyPDF2',
-                     'pytesseract'
+                     'pytesseract',
+                     'tensorflow-gpu'
                  ],
                  zip_safe=False)
