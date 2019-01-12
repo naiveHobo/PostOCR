@@ -27,6 +27,26 @@ PostOCR()
 root.mainloop()
 ```
 
+To train HoboNet:
+```
+python3 HoboNet/train.py
+```
+
+Training hyperparameters can be set in **HoboNet/config.py**. Default values:
+```
+BATCH_SIZE = 128
+NUM_EPOCHS = 150
+MAX_SEQ_LENGTH = 133
+EDIT_SPACE = 5
+SAVE_CHECKPOINT_STEP = 100
+```
+
+To use HoboNet for OCR Post-correction on a text file:
+```
+python3 HoboNet/predict.py --input_file=HoboNet/sample.txt
+```
+The output will be saved in **HoboNet/output.txt**.
+
 ## Dependencies
 
 ```
@@ -37,4 +57,5 @@ PyPDF2
 pytesseract
 tesseract-ocr
 Pillow
+tensorflow
 ```
