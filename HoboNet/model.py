@@ -15,7 +15,7 @@ def build_model(num_classes,
 
             # The following allows the model to dynamically accept different sizes of x and also
             # produces batches of the input data.
-            dataset = tf.data.Dataset.from_tensor_slices((x, y)).batch(batch_size).repeat()
+            dataset = tf.data.Dataset.from_tensor_slices((x, y)).batch(batch_size).repeat().shuffle(buffer_size=32)
 
             data_iter = dataset.make_initializable_iterator()
             features, labels = data_iter.get_next()
