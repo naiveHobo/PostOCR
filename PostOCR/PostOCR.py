@@ -548,4 +548,4 @@ class PostOCR(Frame):
             with open('policy.xml', 'w') as new_file:
                 new_file.writelines(new_data)
 
-            subprocess.call(["sudo", "mv", "new_policy.xml", policy_path])
+            subprocess.call(["sudo", "mv", "policy.xml", policy_path])
